@@ -1,13 +1,24 @@
 use bytes::BufMut;
 use futures::TryStreamExt;
+use mime_sniffer::MimeTypeSniffer;
 use std::convert::Infallible;
 use std::fs;
+use std::net::Ipv4Addr;
 use uuid::Uuid;
 use warp::{
     http::StatusCode,
     multipart::{FormData, Part},
     Filter, Rejection, Reply,
 };
+
+// constants
+static IP: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
+static PORT: u16 = 8080;
+static MAX_LENGTH: u64 = 8_000_000;
+
+static HTTPS: bool = false;
+static CERT_PATH: &str = "";
+static KEY_PATH: &str = "";
 
 #[tokio::main]
 async fn main() {
@@ -21,12 +32,21 @@ async fn main() {
     // uploads
     let upload_route = warp::path("upload")
         .and(warp::post())
-        .and(warp::multipart::form().max_length(8_000_000))
+        .and(warp::multipart::form().max_length(MAX_LENGTH))
         .and_then(upload);
 
     let router = upload_route.or(download_route).recover(handle_rejection);
-    println!("Server started at localhost:8080");
-    warp::serve(router).run(([0, 0, 0, 0], 8080)).await;
+    println!("Server started at {}:{}", IP, PORT);
+    if HTTPS {
+        warp::serve(router)
+            .tls()
+            .cert_path(CERT_PATH)
+            .key_path(KEY_PATH)
+            .run((IP, PORT))
+            .await;
+    } else {
+        warp::serve(router).run((IP, PORT)).await;
+    }
 }
 
 async fn upload(form: FormData) -> Result<impl Reply, Rejection> {
@@ -35,29 +55,10 @@ async fn upload(form: FormData) -> Result<impl Reply, Rejection> {
         warp::reject::reject()
     })?;
 
+    let mut file_name = "".to_string();
+
     for p in parts {
         if p.name() == "file" {
-            // determine content type and file extension
-            let content_type = p.content_type();
-            let file_ending;
-            match content_type {
-                Some(file_type) => match file_type {
-                    // supported file types
-                    "image/png" => {
-                        file_ending = "png";
-                    }
-
-                    v => {
-                        eprintln!("invalid file type: {}", v);
-                        return Err(warp::reject::reject());
-                    }
-                },
-                None => {
-                    eprintln!("file type could not be determined");
-                    return Err(warp::reject::reject());
-                }
-            }
-
             // read actual file stream into a byte vector
             let value = p
                 .stream()
@@ -71,16 +72,50 @@ async fn upload(form: FormData) -> Result<impl Reply, Rejection> {
                     warp::reject::reject()
                 })?;
 
-            let file_name = format!("./files/{}.{}", Uuid::new_v4().to_string(), file_ending);
-            tokio::fs::write(&file_name, value).await.map_err(|e| {
-                eprintln!("error writing file: {}", e);
-                warp::reject::reject()
-            })?;
+            // determine content type and file extension
+            let content_type = value.sniff_mime_type();
+            let file_ending;
+            match content_type {
+                Some(file_type) => match file_type {
+                    // supported file types
+                    "image/png" => {
+                        file_ending = "png";
+                    }
+
+                    "image/jpeg" => {
+                        file_ending = "jpeg";
+                    }
+
+                    "video/mp4" => {
+                        file_ending = "mp4";
+                    }
+
+                    v => {
+                        eprintln!("invalid file type: {}", v);
+                        return Err(warp::reject::reject());
+                    }
+                },
+                None => {
+                    eprintln!("file type could not be determined");
+                    return Err(warp::reject::reject());
+                }
+            }
+
+            file_name = format!("/files/{}.{}", Uuid::new_v4().to_string(), file_ending);
+            tokio::fs::write(".".to_string() + &file_name, value)
+                .await
+                .map_err(|e| {
+                    eprintln!("error writing file: {}", e);
+                    warp::reject::reject()
+                })?;
             println!("created file: {}", file_name);
         }
     }
 
-    Ok("success")
+    Ok(format!(
+        "Success! Your file is at http://{}:{}{}\n",
+        IP, PORT, file_name
+    ))
 }
 
 async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply, Infallible> {
