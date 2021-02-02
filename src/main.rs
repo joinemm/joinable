@@ -12,8 +12,8 @@ use warp::{
 };
 
 // constants
+static DOMAIN: &str = "joinable.xyz";
 static IP: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
-static PORT: u16 = 8080;
 static MAX_LENGTH: u64 = 8_000_000;
 
 static HTTPS: bool = false;
@@ -36,16 +36,21 @@ async fn main() {
         .and_then(upload);
 
     let router = upload_route.or(download_route).recover(handle_rejection);
-    println!("Server started at {}:{}", IP, PORT);
+
+    let port;
     if HTTPS {
+        port = 433;
+        println!("Server started using HTTPS on port {}", port);
         warp::serve(router)
             .tls()
             .cert_path(CERT_PATH)
             .key_path(KEY_PATH)
-            .run((IP, PORT))
+            .run((IP, port))
             .await;
     } else {
-        warp::serve(router).run((IP, PORT)).await;
+        port = 80;
+        println!("Server started using HTTP on port {}", port);
+        warp::serve(router).run((IP, port)).await;
     }
 }
 
@@ -113,8 +118,8 @@ async fn upload(form: FormData) -> Result<impl Reply, Rejection> {
     }
 
     Ok(format!(
-        "Success! Your file is at http://{}:{}{}\n",
-        IP, PORT, file_name
+        "Success! Your file is at https://{}{}\n",
+        DOMAIN, file_name
     ))
 }
 
