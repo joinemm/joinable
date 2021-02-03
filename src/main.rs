@@ -143,8 +143,8 @@ async fn upload(form: FormData, settings: config::Config) -> Result<String, Reje
                 }
             }
 
-            file_name = format!("/files/{}.{}", urlgen::generate(), file_ending);
-            tokio::fs::write(".".to_string() + &file_name, value)
+            file_name = format!("{}.{}", urlgen::generate(), file_ending);
+            tokio::fs::write("./files/".to_string() + &file_name, value)
                 .await
                 .map_err(|e| {
                     eprintln!("error writing file: {}", e);
