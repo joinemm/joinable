@@ -514,6 +514,7 @@ dependencies = [
  "futures",
  "itertools",
  "mime-sniffer",
+ "random-fast-rng",
  "tokio",
  "uuid",
  "warp",
@@ -923,6 +924,21 @@ checksum = "3190ef7066a446f2e7f42e239d161e905420ccab01eb967c9eb27d21b2322a73"
 dependencies = [
  "rand_core 0.6.1",
 ]
+
+[[package]]
+name = "random-fast-rng"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95784e84a571f44dc7fd4f0d3ab3f493d3c07b90d695450890490a89d83905a3"
+dependencies = [
+ "random-trait",
+]
+
+[[package]]
+name = "random-trait"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d3186af2e04abe646626095b37293d7485027e8591c56430dfda49894a28447"
 
 [[package]]
 name = "redox_syscall"

@@ -1,10 +1,10 @@
+mod urlgen;
 use bytes::BufMut;
 use futures::TryStreamExt;
 use mime_sniffer::MimeTypeSniffer;
 use std::convert::Infallible;
 use std::fs;
 use std::net::Ipv4Addr;
-use uuid::Uuid;
 use warp::{
     http::StatusCode,
     multipart::{FormData, Part},
@@ -26,10 +26,6 @@ async fn main() {
 
     // create files folder of it doesnt exist
     fs::create_dir_all("./files").unwrap();
-    // Matches requests that start with `/files`,
-    // and then uses the rest of that path to lookup
-    // and serve a file from `./files/`.
-    let download_route = warp::path("files").and(warp::fs::dir("./files/"));
 
     // uploads
     let upload_route = warp::path("upload")
@@ -37,6 +33,9 @@ async fn main() {
         .and(warp::multipart::form().max_length(settings.get_int("max_file_size").unwrap() as u64))
         .and(with_settings(settings.clone()))
         .and_then(upload);
+
+    // downloads
+    let download_route = warp::get().and(warp::fs::dir("./files/"));
 
     let router = upload_route.or(download_route).recover(handle_rejection);
 
@@ -144,7 +143,7 @@ async fn upload(form: FormData, settings: config::Config) -> Result<String, Reje
                 }
             }
 
-            file_name = format!("/files/{}.{}", Uuid::new_v4().to_string(), file_ending);
+            file_name = format!("/files/{}.{}", urlgen::generate(), file_ending);
             tokio::fs::write(".".to_string() + &file_name, value)
                 .await
                 .map_err(|e| {
