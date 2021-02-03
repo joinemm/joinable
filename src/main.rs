@@ -10,18 +10,20 @@ use warp::{
     multipart::{FormData, Part},
     Filter, Rejection, Reply,
 };
-
-// constants
-static DOMAIN: &str = "joinable.xyz";
-static IP: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
-static MAX_LENGTH: u64 = 8_000_000;
-
-static HTTPS: bool = false;
-static CERT_PATH: &str = "";
-static KEY_PATH: &str = "";
+extern crate config;
 
 #[tokio::main]
 async fn main() {
+    let mut settings = config::Config::default();
+    settings
+        // Add in `./Settings.toml`
+        .merge(config::File::with_name("Settings"))
+        .unwrap()
+        // Add in settings from the environment (with a prefix of APP)
+        // Eg.. `APP_DEBUG=1 ./target/app` would set the `debug` key
+        .merge(config::Environment::with_prefix("APP"))
+        .unwrap();
+
     // create files folder of it doesnt exist
     fs::create_dir_all("./files").unwrap();
     // Matches requests that start with `/files`,
@@ -32,29 +34,65 @@ async fn main() {
     // uploads
     let upload_route = warp::path("upload")
         .and(warp::post())
-        .and(warp::multipart::form().max_length(MAX_LENGTH))
+        .and(warp::multipart::form().max_length(settings.get_int("max_file_size").unwrap() as u64))
+        .and(with_settings(settings.clone()))
         .and_then(upload);
 
     let router = upload_route.or(download_route).recover(handle_rejection);
 
-    let port;
-    if HTTPS {
-        port = 433;
-        println!("Server started using HTTPS on port {}", port);
+    let port = match settings.get_int("port") {
+        Ok(v) => v as u16,
+        Err(_) => 8080,
+    };
+
+    let mut https = match settings.get_bool("use_https") {
+        Ok(v) => v,
+        Err(_) => true,
+    };
+    let ssl_cert_path = match settings.get_str("ssl_cert") {
+        Ok(v) => v,
+        Err(_) => {
+            https = false;
+            "".to_string()
+        }
+    };
+    let ssl_key_path = match settings.get_str("ssl_key") {
+        Ok(v) => v,
+        Err(_) => {
+            https = false;
+            "".to_string()
+        }
+    };
+
+    let bind_ip = match settings.get_str("ip") {
+        Ok(v) => v.parse::<Ipv4Addr>().unwrap(),
+        Err(_) => Ipv4Addr::LOCALHOST,
+    };
+
+    println!("Binding on {}:{}", bind_ip, port);
+
+    // https is false if either ssl key or cert are missing
+    if https {
+        println!("Using HTTPS");
         warp::serve(router)
             .tls()
-            .cert_path(CERT_PATH)
-            .key_path(KEY_PATH)
-            .run((IP, port))
+            .cert_path(ssl_cert_path)
+            .key_path(ssl_key_path)
+            .run((bind_ip, port))
             .await;
     } else {
-        port = 80;
-        println!("Server started using HTTP on port {}", port);
-        warp::serve(router).run((IP, port)).await;
+        println!("Using HTTP");
+        warp::serve(router).run((bind_ip, port)).await;
     }
 }
 
-async fn upload(form: FormData) -> Result<impl Reply, Rejection> {
+fn with_settings(
+    settings: config::Config,
+) -> impl Filter<Extract = (config::Config,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || settings.clone())
+}
+
+async fn upload(form: FormData, settings: config::Config) -> Result<String, Rejection> {
     let parts: Vec<Part> = form.try_collect().await.map_err(|e| {
         eprintln!("form error: {}", e);
         warp::reject::reject()
@@ -113,13 +151,17 @@ async fn upload(form: FormData) -> Result<impl Reply, Rejection> {
                     eprintln!("error writing file: {}", e);
                     warp::reject::reject()
                 })?;
-            println!("created file: {}", file_name);
+            println!(
+                "created file: {}{}",
+                settings.get_str("domain").unwrap(),
+                file_name
+            );
         }
     }
-
     Ok(format!(
-        "Success! Your file is at https://{}{}\n",
-        DOMAIN, file_name
+        "Success! Your file is at {}{}\n",
+        settings.get_str("domain").unwrap(),
+        file_name
     ))
 }
 
