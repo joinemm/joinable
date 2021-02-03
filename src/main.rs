@@ -123,11 +123,21 @@ async fn upload(form: FormData, settings: config::Config) -> Result<String, Reje
                     "image/png" => {
                         file_ending = "png";
                     }
-
                     "image/jpeg" => {
                         file_ending = "jpeg";
                     }
-
+                    "image/gif" => {
+                        file_ending = "gif";
+                    }
+                    "image/webp" => {
+                        file_ending = "webp";
+                    }
+                    "video/webm" => {
+                        file_ending = "webm";
+                    }
+                    "audio/mpeg" => {
+                        file_ending = "mp3";
+                    }
                     "video/mp4" => {
                         file_ending = "mp4";
                     }
