@@ -42,9 +42,15 @@ async fn main() {
     // downloads
     let download_route = warp::get().and(warp::fs::dir("./files/"));
 
+    // static cdn
+    let static_files = warp::path("static")
+        .and(warp::get())
+        .and(warp::fs::dir("./static"));
+
     let router = upload_route
         .or(download_route)
         .or(upload_page)
+        .or(static_files)
         .recover(handle_rejection);
 
     let port = match settings.get_int("port") {
@@ -175,10 +181,7 @@ async fn upload(form: FormData, settings: config::Config) -> Result<String, Reje
             println!("created file: {}{}", base_url, file_name);
         }
     }
-    Ok(format!(
-        "Success! Your file is at {}{}\n",
-        base_url, file_name
-    ))
+    Ok(format!("{}{}", base_url, file_name))
 }
 
 async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply, Infallible> {
