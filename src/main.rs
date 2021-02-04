@@ -35,7 +35,7 @@ async fn main() {
         .and_then(upload);
 
     // upload page
-    let upload_page = warp::path("upload")
+    let upload_page = warp::path::end()
         .and(warp::get())
         .and(warp::fs::file("./static/upload.html"));
 

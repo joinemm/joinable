@@ -1,34 +1,59 @@
 <!DOCTYPE html>
-<head>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Joinable</title>
+        <meta name="description" content="Because fuck streamable" />
+        <meta name="author" content="Joinemm" />
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css" />
+    </head>
+    <body>
+        <div id="app">
+            <header id="header">
+                <div class="logo">
+                    <h1>Joinable.<sup>xyz</sup></h1>
+                </div>
+            </header>
+            <div id="content">
+                <form id="uploadForm" class="pure-form">
+                    <input
+                        type="file"
+                        name="fileToUpload"
+                        id="fileToUpload"
+                        accept="audio/*|video/*|image/*"
+                        required
+                    />
+                    <input type="password" placeholder="Authentication" />
+                    <button type="submit" name="submit" class="pure-button pure-button-primary">
+                        Upload
+                    </button>
+                </form>
+            </div>
+            <footer id="footer">
+                Made with ❤️ and ☕ by <a href="https://joinemm.dev">Joinemm</a>
+            </footer>
+        </div>
+        <script>
+            const uploadForm = document.getElementById('uploadForm');
+            uploadForm.addEventListener('submit', function (e) {
+                e.preventDefault();
+                let file = e.target.fileToUpload.files[0];
+                let formData = new FormData();
+                formData.append('file', file);
 
-</head>
-<body>
-    <h3>Welcome to <del>Streamable.com</del> Joinable.xyz</h3>
-<form id="uploadForm">
-    <p>Select image to upload:</p>
-    <input type="file" name="fileToUpload" id="fileToUpload" accept="audio/*|video/*|image/*" required/>
-    <input type="submit" value="Upload" name="submit"/>
-    <p id="responseLabel"></p>
-</form>
-<script>
-        const uploadForm = document.getElementById("uploadForm");
-        uploadForm.addEventListener('submit', function(e) {
-            e.preventDefault()
-            let file = e.target.fileToUpload.files[0]
-            let formData = new FormData()
-            formData.append('file', file)
-
-            fetch('upload', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.text())
-            .then(data => {
-                console.log(data);
-                document.getElementById("responseLabel").innerHTML = data;
-                e.target.fileToUpload.value = '';
+                fetch('upload', {
+                    method: 'POST',
+                    body: formData,
+                })
+                    .then((response) => response.text())
+                    .then((data) => {
+                        console.log(data);
+                        // document.getElementById('responseLabel').innerHTML = data;
+                        window.location = data;
+                        e.target.fileToUpload.value = '';
+                    });
             });
-        })
-    </script>
-</body>
+        </script>
+    </body>
 </html>
