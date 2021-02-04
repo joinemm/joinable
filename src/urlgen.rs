@@ -3,6 +3,7 @@ use random_fast_rng::{FastRng, Random};
 const ANIMALS: &'static str = include_str!("./lists/animals.txt");
 const ADJECTIVES: &'static str = include_str!("./lists/adjectives.txt");
 
+// Generate a random url in the format AdjectiveAdjectiveAnimal
 pub fn generate() -> String {
     let mut rng = FastRng::new();
     let adjectives: Vec<&str> = ADJECTIVES.lines().collect();

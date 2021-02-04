@@ -34,10 +34,18 @@ async fn main() {
         .and(with_settings(settings.clone()))
         .and_then(upload);
 
+    // upload page
+    let upload_page = warp::path("upload")
+        .and(warp::get())
+        .and(warp::fs::file("./static/upload.html"));
+
     // downloads
     let download_route = warp::get().and(warp::fs::dir("./files/"));
 
-    let router = upload_route.or(download_route).recover(handle_rejection);
+    let router = upload_route
+        .or(download_route)
+        .or(upload_page)
+        .recover(handle_rejection);
 
     let port = match settings.get_int("port") {
         Ok(v) => v as u16,
@@ -85,17 +93,21 @@ async fn main() {
     }
 }
 
+// function to pass settings into a warp handler
 fn with_settings(
     settings: config::Config,
 ) -> impl Filter<Extract = (config::Config,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || settings.clone())
 }
 
+// handler for uploading files
 async fn upload(form: FormData, settings: config::Config) -> Result<String, Rejection> {
     let parts: Vec<Part> = form.try_collect().await.map_err(|e| {
         eprintln!("form error: {}", e);
         warp::reject::reject()
     })?;
+
+    let base_url = settings.get_str("domain").unwrap();
 
     let mut file_name = "".to_string();
 
@@ -160,17 +172,12 @@ async fn upload(form: FormData, settings: config::Config) -> Result<String, Reje
                     eprintln!("error writing file: {}", e);
                     warp::reject::reject()
                 })?;
-            println!(
-                "created file: {}{}",
-                settings.get_str("domain").unwrap(),
-                file_name
-            );
+            println!("created file: {}{}", base_url, file_name);
         }
     }
     Ok(format!(
         "Success! Your file is at {}{}\n",
-        settings.get_str("domain").unwrap(),
-        file_name
+        base_url, file_name
     ))
 }
 
