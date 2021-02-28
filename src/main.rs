@@ -1,6 +1,7 @@
 mod urlgen;
 use bytes::BufMut;
 use futures::TryStreamExt;
+use log::LevelFilter;
 use mime_sniffer::MimeTypeSniffer;
 use std::convert::Infallible;
 use std::fs;
@@ -11,8 +12,12 @@ use warp::{
     Filter, Rejection, Reply,
 };
 extern crate config;
+extern crate pretty_env_logger;
+#[macro_use]
+extern crate log;
 use serde::{Deserialize, Serialize};
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
+use sqlx::Row;
 use std::error::Error;
 
 pub async fn get_pool(database_url: &str) -> Result<MySqlPool, Box<dyn Error>> {
@@ -31,6 +36,9 @@ struct UploadResponse {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    pretty_env_logger::formatted_timed_builder()
+        .filter(None, LevelFilter::Info)
+        .init();
     let mut settings = config::Config::default();
     settings
         // Add in `./Settings.toml`
@@ -104,11 +112,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(_) => Ipv4Addr::LOCALHOST,
     };
 
-    println!("Binding on {}:{}", bind_ip, port);
-
     // https is false if either ssl key or cert are missing
     if https {
-        println!("Using HTTPS");
         warp::serve(router)
             .tls()
             .cert_path(ssl_cert_path)
@@ -116,7 +121,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .run((bind_ip, port))
             .await;
     } else {
-        println!("Using HTTP");
         warp::serve(router).run((bind_ip, port)).await;
     }
     Ok(())
@@ -136,7 +140,7 @@ async fn upload(
     pool: MySqlPool,
 ) -> Result<impl Reply, Rejection> {
     let parts: Vec<Part> = form.try_collect().await.map_err(|e| {
-        eprintln!("form error: {}", e);
+        error!("form error: {}", e);
         warp::reject::reject()
     })?;
 
@@ -152,7 +156,6 @@ async fn upload(
     let base_url = settings.get_str("domain").unwrap();
 
     for p in parts {
-        println!("{}", p.name());
         if p.name() == "password" {
             let value = p
                 .stream()
@@ -162,7 +165,7 @@ async fn upload(
                 })
                 .await
                 .map_err(|e| {
-                    eprintln!("reading password error: {}", e);
+                    error!("reading password error: {}", e);
                     warp::reject::reject()
                 })?;
             password = String::from_utf8(value).unwrap();
@@ -176,7 +179,7 @@ async fn upload(
                 })
                 .await
                 .map_err(|e| {
-                    eprintln!("reading file error: {}", e);
+                    error!("reading file error: {}", e);
                     warp::reject::reject()
                 })?;
 
@@ -210,14 +213,14 @@ async fn upload(
 
                     v => {
                         err = format!("Unsupported file type: {}", v);
-                        eprintln!("{}", err);
+                        warn!("{}", err);
                         result.content = err;
                         break;
                     }
                 },
                 None => {
                     err = "File type could not be determined".to_string();
-                    eprintln!("{}", err);
+                    warn!("{}", err);
                     result.content = err;
                     break;
                 }
@@ -229,31 +232,32 @@ async fn upload(
     }
     if password == String::new() {
         err = "Please supply an authentication token".to_string();
-        eprintln!("{}", err);
+        warn!("{}", err);
         result.content = err;
     } else {
-        let exists = match sqlx::query("SELECT * FROM authentication WHERE api_key = ?")
+        let exists = match sqlx::query("SELECT active FROM authentication WHERE api_key = ?")
             .bind(&password)
             .fetch_one(&pool)
             .await
         {
-            Ok(_) => true,
+            Ok(v) => v.try_get("active").unwrap(),
             Err(_) => false,
         };
-        println!("{} {}", password, exists);
+        println!("{} {}", &password, exists);
         if !exists {
             err = "Invalid authentication token".to_string();
-            eprintln!("{}", err);
+            warn!("{}", err);
             result.content = err;
         } else if file_content.len() > 0 && file_name != String::new() {
             tokio::fs::write("./files".to_string() + &file_name, file_content)
                 .await
                 .map_err(|e| {
-                    eprintln!("Error writing file: {}", e);
+                    error!("Error writing file: {}", e);
                     warp::reject::reject()
                 })?;
             let file_url = format!("{}{}", base_url, file_name);
-            println!("Created file: {}", file_url);
+
+            info!("Created file: {} using api_key: {}", file_url, &password);
             result.success = true;
             result.content = file_url;
         }
@@ -268,7 +272,7 @@ async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply, Inf
     } else if err.find::<warp::reject::PayloadTooLarge>().is_some() {
         (StatusCode::BAD_REQUEST, "Payload too large".to_string())
     } else {
-        eprintln!("Unhandled error: {:?}", err);
+        error!("Unhandled error: {:?}", err);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "Internal Server Error".to_string(),
