@@ -1,7 +1,7 @@
-domain = ""
-ip = "0.0.0.0"
+domain = "http://localhost:8080"
 port = 8080
 max_file_size = 8_000_000
 use_https = false
 ssl_key = ""
 ssl_cert = ""
+db_connection = "mysql://user:pw@localhost:3306/db"

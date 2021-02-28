@@ -1,0 +1,77 @@
+.warning-label {
+    transform: translateY(-2px);
+    padding-left: 10px;
+    margin: 0;
+    color: #ffcc4d;
+}
+
+.inline {
+    display: flex;
+    align-items: center;
+    padding-bottom: 10px;
+}
+
+a {
+    color: white;
+}
+
+#content {
+    padding-right: 10px;
+}
+
+#uploadArea {
+    width: 100%;
+    border-radius: 6px;
+    padding: 7px;
+    display: flex;
+    align-items: center;
+}
+
+label {
+    margin-bottom: 0;
+}
+
+#dropArea {
+    border-radius: 6px;
+    cursor: pointer;
+    display: block;
+    border: 1px dashed var(--border);
+    margin-bottom: 8px;
+    overflow: hidden;
+}
+
+#dropArea.highlight {
+    border-style: solid;
+    background: var(--button-hover);
+}
+
+.btn {
+    color: var(--form-text);
+    border-radius: 6px;
+    cursor: pointer;
+    background: var(--background);
+    outline: 0;
+    transition: background 250ms;
+    padding: 10px;
+}
+
+.btn:hover {
+    background: var(--button-hover);
+}
+
+.file-select-label {
+    margin-left: 10px;
+}
+
+.file-select-btn {
+    min-width: 80px
+}
+
+.bottom-floater {
+    left: 0;
+    width: 100%;
+    position: absolute;
+    bottom: 10px;
+    margin: 0 auto;
+    text-align: center;
+}

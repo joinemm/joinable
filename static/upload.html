@@ -7,6 +7,7 @@
         <meta name="description" content="Because fuck streamable" />
         <meta name="author" content="Joinemm" />
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css" />
+        <link rel="stylesheet" href="static/style.css" />
     </head>
     <body>
         <div id="app">
@@ -16,43 +17,125 @@
                 </div>
             </header>
             <div id="content">
-                <form id="uploadForm" class="pure-form">
+                <form
+                    id="uploadForm"
+                    method="post"
+                    enctype="multipart/form-data"
+                    autocomplete="off"
+                >
                     <input
+                        style="display: none"
                         type="file"
-                        name="fileToUpload"
-                        id="fileToUpload"
-                        accept="audio/*|video/*|image/*"
+                        name="fileUpload"
+                        id="fileUpload"
+                        accept="video/*,image/*"
+                        onchange="selectFile(this)"
                         required
                     />
-                    <input type="password" placeholder="Authentication" />
-                    <button type="submit" name="submit" class="pure-button pure-button-primary">
-                        Upload
-                    </button>
+                    <label id="dropArea" for="fileUpload">
+                        <div id="uploadArea" for="fileUpload">
+                            <label class="file-select-btn btn" for="fileUpload">Choose file</label>
+                            <label class="file-select-label" id="fileUploadName"
+                                >or drop it here 😎</label
+                            >
+                        </div>
+                    </label>
+                    <input
+                        name="authentication"
+                        id="authenticationField"
+                        type="password"
+                        placeholder="Authentication"
+                    />
+                    <div class="inline">
+                        <button type="button" name="submit" onclick="uploadFile()">Upload</button>
+                        <p id="responseLabel" style="display: none" class="warning-label">
+                            ⚠️ Internal Server Error
+                        </p>
+                    </div>
                 </form>
             </div>
             <footer id="footer">
                 Made with ❤️ and ☕ by <a href="https://joinemm.dev">Joinemm</a>
             </footer>
+            <div class="bottom-floater">
+                <a href="https://github.com/joinemm/joinable">source</a>
+            </div>
         </div>
-        <script>
-            const uploadForm = document.getElementById('uploadForm');
-            uploadForm.addEventListener('submit', function (e) {
-                e.preventDefault();
-                let file = e.target.fileToUpload.files[0];
-                let formData = new FormData();
-                formData.append('file', file);
 
+        <script>
+            function init() {
+                document.getElementById('uploadForm').reset();
+            }
+            window.onload = init;
+            function selectFile(target) {
+                document.getElementById('fileUploadName').innerHTML = target.files[0].name;
+            }
+            const uploadFile = async () => {
+                const uploadForm = document.getElementById('uploadForm');
+                const label = document.getElementById('responseLabel');
+                let file = uploadForm.fileUpload.files[0];
+                if (file == undefined) {
+                    label.innerHTML = '⚠️ Please select a file to upload';
+                    label.style.display = 'block';
+                    return;
+                }
+                let formData = new FormData();
+                let authentication = uploadForm.authentication.value;
+                if (authentication.length < 1) {
+                    label.innerHTML = '⚠️ Missing authentication code';
+                    label.style.display = 'block';
+                    return;
+                }
+                formData.append('file', file);
+                formData.append('password', authentication);
                 fetch('upload', {
                     method: 'POST',
                     body: formData,
                 })
-                    .then((response) => response.text())
+                    .then((response) => {
+                        return response.json();
+                    })
                     .then((data) => {
                         console.log(data);
-                        // document.getElementById('responseLabel').innerHTML = data;
-                        window.location = data;
-                        e.target.fileToUpload.value = '';
+                        if (data.success) {
+                            document.getElementById('fileUploadName').innerHTML =
+                                'or drop it here 😎';
+                            window.location = data.content;
+                        } else {
+                            const label = document.getElementById('responseLabel');
+                            label.innerHTML = '⚠️ ' + data.content;
+                            label.style.display = 'block';
+                        }
+                    })
+                    .catch((error) => {
+                        console.log(error);
+                        const label = document.getElementById('responseLabel');
+                        label.innerHTML = '⚠️ ' + error;
+                        label.style.display = 'block';
                     });
+            };
+            const dropArea = document.getElementById('dropArea');
+            // File drop-area events
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach((ev) => {
+                dropArea.addEventListener(ev, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+            });
+            ['dragenter', 'dragover'].forEach((ev) => {
+                dropArea.addEventListener(ev, () => {
+                    dropArea.classList.add('highlight');
+                });
+            });
+            ['dragleave', 'drop'].forEach((ev) => {
+                dropArea.addEventListener(ev, () => {
+                    dropArea.classList.remove('highlight');
+                });
+            });
+            dropArea.addEventListener('drop', (e) => {
+                const files = e.dataTransfer.files;
+                document.getElementById('fileUploadName').innerHTML = files[0].name;
+                document.getElementById('fileUpload').files = files;
             });
         </script>
     </body>

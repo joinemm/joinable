@@ -11,9 +11,26 @@ use warp::{
     Filter, Rejection, Reply,
 };
 extern crate config;
+use serde::{Deserialize, Serialize};
+use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
+use std::error::Error;
+
+pub async fn get_pool(database_url: &str) -> Result<MySqlPool, Box<dyn Error>> {
+    let pool = MySqlPoolOptions::new()
+        .max_connections(10)
+        .connect(database_url)
+        .await?;
+    Ok(pool)
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct UploadResponse {
+    success: bool,
+    content: String,
+}
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut settings = config::Config::default();
     settings
         // Add in `./Settings.toml`
@@ -27,11 +44,16 @@ async fn main() {
     // create files folder of it doesnt exist
     fs::create_dir_all("./files").unwrap();
 
+    let pool = get_pool(&settings.get_str("db_connection").unwrap())
+        .await
+        .unwrap();
+
     // uploads
     let upload_route = warp::path("upload")
         .and(warp::post())
         .and(warp::multipart::form().max_length(settings.get_int("max_file_size").unwrap() as u64))
         .and(with_settings(settings.clone()))
+        .and(warp::any().map(move || pool.clone()))
         .and_then(upload);
 
     // upload page
@@ -97,6 +119,7 @@ async fn main() {
         println!("Using HTTP");
         warp::serve(router).run((bind_ip, port)).await;
     }
+    Ok(())
 }
 
 // function to pass settings into a warp handler
@@ -107,18 +130,43 @@ fn with_settings(
 }
 
 // handler for uploading files
-async fn upload(form: FormData, settings: config::Config) -> Result<String, Rejection> {
+async fn upload(
+    form: FormData,
+    settings: config::Config,
+    pool: MySqlPool,
+) -> Result<impl Reply, Rejection> {
     let parts: Vec<Part> = form.try_collect().await.map_err(|e| {
         eprintln!("form error: {}", e);
         warp::reject::reject()
     })?;
 
+    let mut result = UploadResponse {
+        success: false,
+        content: String::new(),
+    };
+    let mut err: String;
+    let mut password = String::new();
+    let mut file_content = Vec::<u8>::new();
+    let mut file_name = String::new();
+
     let base_url = settings.get_str("domain").unwrap();
 
-    let mut file_name = "".to_string();
-
     for p in parts {
-        if p.name() == "file" {
+        println!("{}", p.name());
+        if p.name() == "password" {
+            let value = p
+                .stream()
+                .try_fold(Vec::new(), |mut vec, data| {
+                    vec.put(data);
+                    async move { Ok(vec) }
+                })
+                .await
+                .map_err(|e| {
+                    eprintln!("reading password error: {}", e);
+                    warp::reject::reject()
+                })?;
+            password = String::from_utf8(value).unwrap();
+        } else if p.name() == "file" {
             // read actual file stream into a byte vector
             let value = p
                 .stream()
@@ -161,27 +209,56 @@ async fn upload(form: FormData, settings: config::Config) -> Result<String, Reje
                     }
 
                     v => {
-                        eprintln!("invalid file type: {}", v);
-                        return Err(warp::reject::reject());
+                        err = format!("Unsupported file type: {}", v);
+                        eprintln!("{}", err);
+                        result.content = err;
+                        break;
                     }
                 },
                 None => {
-                    eprintln!("file type could not be determined");
-                    return Err(warp::reject::reject());
+                    err = "File type could not be determined".to_string();
+                    eprintln!("{}", err);
+                    result.content = err;
+                    break;
                 }
             }
 
             file_name = format!("/{}.{}", urlgen::generate(), file_ending);
-            tokio::fs::write("./files".to_string() + &file_name, value)
-                .await
-                .map_err(|e| {
-                    eprintln!("error writing file: {}", e);
-                    warp::reject::reject()
-                })?;
-            println!("created file: {}{}", base_url, file_name);
+            file_content = value;
         }
     }
-    Ok(format!("{}{}", base_url, file_name))
+    if password == String::new() {
+        err = "Please supply an authentication token".to_string();
+        eprintln!("{}", err);
+        result.content = err;
+    } else {
+        let exists = match sqlx::query("SELECT * FROM authentication WHERE api_key = ?")
+            .bind(&password)
+            .fetch_one(&pool)
+            .await
+        {
+            Ok(_) => true,
+            Err(_) => false,
+        };
+        println!("{} {}", password, exists);
+        if !exists {
+            err = "Invalid authentication token".to_string();
+            eprintln!("{}", err);
+            result.content = err;
+        } else if file_content.len() > 0 && file_name != String::new() {
+            tokio::fs::write("./files".to_string() + &file_name, file_content)
+                .await
+                .map_err(|e| {
+                    eprintln!("Error writing file: {}", e);
+                    warp::reject::reject()
+                })?;
+            let file_url = format!("{}{}", base_url, file_name);
+            println!("Created file: {}", file_url);
+            result.success = true;
+            result.content = file_url;
+        }
+    }
+    Ok(warp::reply::json(&result))
 }
 
 async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply, Infallible> {
@@ -198,5 +275,9 @@ async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply, Inf
         )
     };
 
-    Ok(warp::reply::with_status(message, code))
+    let result = UploadResponse {
+        success: false,
+        content: format!("{} {}", code, message),
+    };
+    Ok(warp::reply::json(&result))
 }
