@@ -4,8 +4,8 @@ use futures::TryStreamExt;
 use log::LevelFilter;
 use mime_sniffer::MimeTypeSniffer;
 use std::convert::Infallible;
-use std::fs;
 use std::net::Ipv4Addr;
+use std::{fs, str::FromStr};
 use warp::{
     http::StatusCode,
     multipart::{FormData, Part},
@@ -16,14 +16,21 @@ extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
 use serde::{Deserialize, Serialize};
-use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
 use sqlx::Row;
+use sqlx::{
+    mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions},
+    ConnectOptions,
+};
 use std::error::Error;
 
 pub async fn get_pool(database_url: &str) -> Result<MySqlPool, Box<dyn Error>> {
+    let options = MySqlConnectOptions::from_str(database_url)
+        .unwrap()
+        .disable_statement_logging()
+        .to_owned();
     let pool = MySqlPoolOptions::new()
         .max_connections(10)
-        .connect(database_url)
+        .connect_with(options)
         .await?;
     Ok(pool)
 }
@@ -67,11 +74,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // upload page
     let upload_page = warp::path::end()
         .and(warp::get())
-        .and(warp::fs::file("./static/upload.html"));
+        .and(warp::fs::file("./static/upload.html"))
+        .and_then(log_page);
 
     // downloads
     let download_route = warp::get()
         .and(warp::fs::dir("./files/"))
+        .and(with_settings(settings.clone()))
         .and(with_db(pool.clone()))
         .and_then(log_access);
 
@@ -80,10 +89,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and(warp::get())
         .and(warp::fs::dir("./static"));
 
+    // everything else 404
+    let everything_else = warp::any()
+        .and(warp::get())
+        .and(warp::fs::file("./static/404.html"))
+        .and_then(log_page);
+
     let router = upload_route
         .or(download_route)
         .or(upload_page)
         .or(static_files)
+        .or(everything_else)
         .recover(handle_rejection);
 
     let port = match settings.get_int("port") {
@@ -140,9 +156,19 @@ fn with_db(db_pool: MySqlPool) -> impl Filter<Extract = (MySqlPool,), Error = In
     warp::any().map(move || db_pool.clone())
 }
 
-async fn log_access(file: warp::fs::File, pool: MySqlPool) -> Result<impl Reply, Rejection> {
+// logs files accessed
+async fn log_access(
+    file: warp::fs::File,
+    settings: config::Config,
+    pool: MySqlPool,
+) -> Result<impl Reply, Rejection> {
     let file_id = file.path().file_stem().unwrap().to_str().unwrap();
-    println!("{}", &file_id);
+    let base_url = settings.get_str("domain").unwrap();
+    info!(
+        "File accessed: {}/{}",
+        base_url,
+        file.path().file_name().unwrap().to_str().unwrap()
+    );
     let result = sqlx::query(
         "UPDATE upload
         SET last_accessed = NOW(),
@@ -156,6 +182,14 @@ async fn log_access(file: warp::fs::File, pool: MySqlPool) -> Result<impl Reply,
         Err(e) => error!("{}", e),
         _ => (),
     }
+    Ok(file)
+}
+
+async fn log_page(file: warp::fs::File) -> Result<impl Reply, Rejection> {
+    info!(
+        "Serving {}",
+        file.path().file_name().unwrap().to_str().unwrap()
+    );
     Ok(file)
 }
 
@@ -272,7 +306,7 @@ async fn upload(
         };
         if !exists {
             err = "Invalid authentication token".to_string();
-            warn!("{}", err);
+            warn!("{}: {}", err, &password);
             result.content = err;
         } else if file_content.len() > 0 && file_name != String::new() {
             tokio::fs::write("./files".to_string() + &file_name, file_content)
@@ -284,17 +318,19 @@ async fn upload(
             let file_url = format!("{}{}", base_url, file_name);
 
             match sqlx::query(
-                "INSERT INTO upload (identifier, created_on, api_key_used, last_accessed) VALUES (?, NOW(), ?, NOW())",
+                "INSERT INTO upload (identifier, created_on, api_key_used, last_accessed)
+                VALUES (?, NOW(), ?, NOW())",
             )
             .bind(&file_id)
             .bind(&password)
             .execute(&pool)
-            .await {
+            .await
+            {
                 Err(e) => error!("{}", e),
-                _ => ()
+                _ => (),
             }
 
-            info!("Created file: {} using api_key: {}", file_url, &password);
+            info!("File created: {} using key: {}", file_url, &password);
             result.success = true;
             result.content = file_url;
         }
@@ -316,25 +352,9 @@ async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply, Inf
         )
     };
 
-    if code == StatusCode::NOT_FOUND {
-        Ok(warp::reply::html(
-            r#"
-            <html>
-                <head>
-                    <title>404 NOT FOUND</title>
-                </head>
-                <body>
-                    <h1>404 NOT FOUND</h1>
-                </body>
-            </html>
-            "#,
-        )
-        .into_response())
-    } else {
-        let result = UploadResponse {
-            success: false,
-            content: format!("{} {}", code, message),
-        };
-        Ok(warp::reply::json(&result).into_response())
-    }
+    let result = UploadResponse {
+        success: false,
+        content: format!("{} {}", code, message),
+    };
+    Ok(warp::reply::json(&result).into_response())
 }
