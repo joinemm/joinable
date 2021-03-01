@@ -63,15 +63,20 @@
         </div>
 
         <script>
+            function formSubmit(event) {
+                uploadFile();
+                event.preventDefault();
+            }
+            const uploadForm = document.getElementById('uploadForm');
+            uploadForm.addEventListener('submit', formSubmit);
             function init() {
-                document.getElementById('uploadForm').reset();
+                form.reset();
             }
             window.onload = init;
             function selectFile(target) {
                 document.getElementById('fileUploadName').innerHTML = target.files[0].name;
             }
             const uploadFile = async () => {
-                const uploadForm = document.getElementById('uploadForm');
                 const label = document.getElementById('responseLabel');
                 let file = uploadForm.fileUpload.files[0];
                 if (file == undefined) {
