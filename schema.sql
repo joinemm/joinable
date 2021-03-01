@@ -6,8 +6,10 @@ CREATE TABLE IF NOT EXISTS authentication (
 );
 
 CREATE TABLE IF NOT EXISTS upload (
-    identifier VARCHAR(64),
+    identifier VARCHAR(128),
     created_on DATETIME,
     api_key_used VARCHAR(32),
+    times_accessed INT DEFAULT 0,
+    last_accessed DATETIME,
     PRIMARY KEY (identifier)
 );
